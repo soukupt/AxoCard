@@ -342,3 +342,12 @@ button { -webkit-tap-highlight-color: transparent; }
   background:linear-gradient(90deg,#12c7ed,#3260ff 55%,#ed3aa8);
   box-shadow:0 12px 35px rgba(44,122,239,.22);
 }
+
+
+/* Requested polish */
+.done-mark {
+  color:#ffffff;
+  background:linear-gradient(135deg,#19c9ee 0%,#3262ff 52%,#ef3aa8 100%);
+  box-shadow:0 14px 38px rgba(78,93,255,.22), 0 0 28px rgba(236,58,168,.12);
+}
+.button-row { display:block; }

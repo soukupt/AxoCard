@@ -13,3 +13,10 @@ Current decisions:
 
 Temporary implementation detail:
 The exact Figma asset URLs used for the first preview are short-lived. Before production merge they must be downloaded into the repository and referenced locally.
+
+
+Provider recognition v1:
+- Brand/provider is populated only from a real signal.
+- Current browser-only pass uses filename metadata when it clearly matches a known provider.
+- No provider name is fabricated when recognition fails.
+- Next upgrade path: OCR/logo classification from the image itself, preferably via a dedicated OCR/model service or native iOS Vision.

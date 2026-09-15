@@ -151,6 +151,26 @@ function Home({ onAdd, savedCards }: { onAdd: () => void; savedCards: SavedCard[
   );
 }
 
+
+const KNOWN_PROVIDERS = [
+  "BENU", "Tesco", "Kaufland", "Albert", "Teta", "Möbelix", "BILLA", "IKEA",
+  "Lidl", "dm", "Rossmann", "Globus", "Dr.Max"
+];
+
+function inferProviderFromFilename(file: File): string {
+  const normalized = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const hit = KNOWN_PROVIDERS.find((provider) =>
+    normalized.includes(provider.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())
+  );
+  return hit ?? "";
+}
+
+async function tryReadProviderFromImage(file: File): Promise<string> {
+  // Browser OCR is intentionally conservative here. We only return a value when we have a real signal.
+  // First use filename metadata (common for exported card images); image OCR can be upgraded server-side later.
+  return inferProviderFromFilename(file);
+}
+
 async function tryDetectBarcode(file: File): Promise<string> {
   const BarcodeDetectorCtor = (window as unknown as {
     BarcodeDetector?: new (opts?: { formats?: string[] }) => {
@@ -255,8 +275,15 @@ function FirstSide({
     const url = URL.createObjectURL(file);
     onDraft({ firstImage: url });
     setScanning(true);
-    const code = await tryDetectBarcode(file);
-    if (code) onDraft({ firstImage: url, code });
+    const [code, provider] = await Promise.all([
+      tryDetectBarcode(file),
+      tryReadProviderFromImage(file),
+    ]);
+    onDraft({
+      firstImage: url,
+      ...(code ? { code } : {}),
+      ...(provider ? { brand: provider } : {}),
+    });
     setScanning(false);
   };
 
@@ -296,8 +323,15 @@ function SecondSide({
     const url = URL.createObjectURL(file);
     onDraft({ secondImage: url });
     setScanning(true);
-    const code = await tryDetectBarcode(file);
-    if (code) onDraft({ secondImage: url, code });
+    const [code, provider] = await Promise.all([
+      tryDetectBarcode(file),
+      tryReadProviderFromImage(file),
+    ]);
+    onDraft({
+      secondImage: url,
+      ...(code ? { code } : {}),
+      ...(!draft.brand && provider ? { brand: provider } : {}),
+    });
     setScanning(false);
   };
 
@@ -313,10 +347,9 @@ function SecondSide({
         <div className="truth-note">
           {scanning ? "AxoCard hledá čárový kód nebo QR…" : draft.code ? "Kód byl skutečně rozpoznán." : "Kód zatím rozpoznán nebyl. Lze jej doplnit ručně v kontrole."}
         </div>
-        <div className="button-row">
-          <button className="secondary" type="button" onClick={onNext}>Přeskočit</button>
-          <button className="primary" type="button" disabled={scanning} onClick={onNext}>Pokračovat</button>
-        </div>
+        <button className="primary" type="button" disabled={scanning} onClick={onNext}>
+          Pokračovat
+        </button>
       </section>
     </main>
   );
