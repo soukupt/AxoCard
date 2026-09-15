@@ -1,5 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { createWorker } from "tesseract.js";
 import "./styles.css";
 
 type Screen = "home" | "first" | "second" | "review" | "done";
@@ -166,9 +167,33 @@ function inferProviderFromFilename(file: File): string {
 }
 
 async function tryReadProviderFromImage(file: File): Promise<string> {
-  // Browser OCR is intentionally conservative here. We only return a value when we have a real signal.
-  // First use filename metadata (common for exported card images); image OCR can be upgraded server-side later.
-  return inferProviderFromFilename(file);
+  const filenameHit = inferProviderFromFilename(file);
+  if (filenameHit) return filenameHit;
+
+  try {
+    const worker = await createWorker("eng");
+    const { data } = await worker.recognize(file);
+    await worker.terminate();
+
+    const normalized = data.text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9.]+/g, " ");
+
+    const hit = KNOWN_PROVIDERS.find((provider) => {
+      const key = provider
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9.]+/g, " ");
+      return normalized.includes(key);
+    });
+
+    return hit ?? "";
+  } catch {
+    return "";
+  }
 }
 
 async function tryDetectBarcode(file: File): Promise<string> {
@@ -296,7 +321,11 @@ function FirstSide({
         <p>Vyfoť nebo vyber první stranu karty. Tato strana je povinná.</p>
         <ImagePicker title="První strana" required preview={draft.firstImage} onChoose={choose} />
         <div className="truth-note">
-          {scanning ? "AxoCard hledá čárový kód nebo QR…" : draft.code ? "Kód byl skutečně rozpoznán z fotografie." : "Pokud je na fotografii čitelný kód, AxoCard se ho pokusí rozpoznat."}
+          {scanning
+            ? "AxoCard čte kód a hledá název poskytovatele…"
+            : draft.code || draft.brand
+              ? [draft.code ? "Kód rozpoznán." : "", draft.brand ? `Poskytovatel: ${draft.brand}.` : ""].filter(Boolean).join(" ")
+              : "AxoCard se pokusí přečíst kód i název poskytovatele přímo z fotografie."}
         </div>
         <button className="primary" type="button" disabled={!draft.firstImage || scanning} onClick={onNext}>
           Pokračovat
