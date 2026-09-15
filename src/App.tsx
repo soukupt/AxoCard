@@ -1,4 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import "./styles.css";
 
 type Screen = "home" | "first" | "second" | "review" | "done";
@@ -151,18 +152,36 @@ function Home({ onAdd, savedCards }: { onAdd: () => void; savedCards: SavedCard[
 }
 
 async function tryDetectBarcode(file: File): Promise<string> {
-  const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (opts?: { formats?: string[] }) => { detect: (source: ImageBitmap) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
-  if (!BarcodeDetectorCtor || !("createImageBitmap" in window)) return "";
+  const BarcodeDetectorCtor = (window as unknown as {
+    BarcodeDetector?: new (opts?: { formats?: string[] }) => {
+      detect: (source: ImageBitmap) => Promise<Array<{ rawValue?: string }>>;
+    };
+  }).BarcodeDetector;
+
+  if (BarcodeDetectorCtor && "createImageBitmap" in window) {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const detector = new BarcodeDetectorCtor({
+        formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e"],
+      });
+      const result = await detector.detect(bitmap);
+      bitmap.close();
+      const detected = result[0]?.rawValue?.trim() ?? "";
+      if (detected) return detected;
+    } catch {
+      // Safari/iOS often does not expose BarcodeDetector; fall through to ZXing.
+    }
+  }
+
+  const url = URL.createObjectURL(file);
   try {
-    const bitmap = await createImageBitmap(file);
-    const detector = new BarcodeDetectorCtor({
-      formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e"],
-    });
-    const result = await detector.detect(bitmap);
-    bitmap.close();
-    return result[0]?.rawValue ?? "";
+    const reader = new BrowserMultiFormatReader();
+    const result = await reader.decodeFromImageUrl(url);
+    return result.getText().trim();
   } catch {
     return "";
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
