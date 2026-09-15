@@ -1,24 +1,39 @@
-import { useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import "./styles.css";
 
-type Screen = "home" | "first";
-
+type Screen = "home" | "first" | "second" | "review" | "done";
 type CardStatus = "wallet" | "ready" | "none";
 
-const cards = [
-  { brand: "TESCO", name: "Tesco Clubcard", type: "Věrnostní karta", status: "wallet" as CardStatus },
-  { brand: "K", name: "Kaufland Card", type: "Věrnostní karta", status: "wallet" as CardStatus },
-  { brand: "BENU", name: "BENU", type: "Lékárna", status: "wallet" as CardStatus },
-  { brand: "albert", name: "Albert", type: "Věrnostní karta", status: "ready" as CardStatus },
-  { brand: "teta", name: "Teta", type: "Drogerie", status: "ready" as CardStatus },
-  { brand: "MÖBELIX", name: "Möbelix", type: "Věrnostní karta", status: "none" as CardStatus },
-  { brand: "BILLA", name: "BILLA Bonus Club", type: "Věrnostní karta", status: "wallet" as CardStatus },
-  { brand: "IKEA", name: "IKEA Family", type: "Věrnostní karta", status: "ready" as CardStatus },
+type SavedCard = {
+  id: string;
+  brand: string;
+  name: string;
+  type: string;
+  code: string;
+  status: CardStatus;
+};
+
+type Draft = {
+  firstImage: string;
+  secondImage: string;
+  brand: string;
+  type: string;
+  code: string;
+};
+
+const DEMO_CARDS: SavedCard[] = [
+  { id: "tesco", brand: "TESCO", name: "Tesco Clubcard", type: "Věrnostní karta", code: "", status: "wallet" },
+  { id: "kaufland", brand: "K", name: "Kaufland Card", type: "Věrnostní karta", code: "", status: "wallet" },
+  { id: "benu", brand: "BENU", name: "BENU", type: "Lékárna", code: "", status: "wallet" },
+  { id: "albert", brand: "albert", name: "Albert", type: "Věrnostní karta", code: "", status: "ready" },
+  { id: "teta", brand: "teta", name: "Teta", type: "Drogerie", code: "", status: "ready" },
+  { id: "mobelix", brand: "MÖBELIX", name: "Möbelix", type: "Věrnostní karta", code: "", status: "none" },
+  { id: "billa", brand: "BILLA", name: "BILLA Bonus Club", type: "Věrnostní karta", code: "", status: "wallet" },
+  { id: "ikea", brand: "IKEA", name: "IKEA Family", type: "Věrnostní karta", code: "", status: "ready" },
 ];
 
 const FIGMA = {
   hero: "https://www.figma.com/api/mcp/asset/5e3b60db-f9c3-43ba-8aa4-a8024d3979a5/4162d.png",
-  heroDetail: "https://www.figma.com/api/mcp/asset/5e3b60db-f9c3-43ba-8aa4-a8024d3979a5/91d52.png",
   logoMark: "https://www.figma.com/api/mcp/asset/5e3b60db-f9c3-43ba-8aa4-a8024d3979a5/36096.png",
   settings: "https://www.figma.com/api/mcp/asset/5e3b60db-f9c3-43ba-8aa4-a8024d3979a5/8c9f1.png",
   statusSignal: "https://www.figma.com/api/mcp/asset/5e3b60db-f9c3-43ba-8aa4-a8024d3979a5/227b2.png",
@@ -28,6 +43,17 @@ const FIGMA = {
   ctaArrow: "https://www.figma.com/api/mcp/asset/4235d32c-4e6e-447e-bfc8-f12398916349/d380e.png",
   ctaCamera: "https://www.figma.com/api/mcp/asset/4235d32c-4e6e-447e-bfc8-f12398916349/43a6c.png",
 };
+
+const STORAGE_KEY = "axocard_saved_cards_v2";
+
+function readSavedCards(): SavedCard[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
 
 function Status({ status }: { status: CardStatus }) {
   if (status === "wallet") return <span className="status wallet">● <span>V Apple Wallet</span></span>;
@@ -40,11 +66,12 @@ function CardLogo({ brand }: { brand: string }) {
   return <div className={"card-logo " + cls}>{brand}</div>;
 }
 
-function Home({ onAdd }: { onAdd: () => void }) {
+function Home({ onAdd, savedCards }: { onAdd: () => void; savedCards: SavedCard[] }) {
   const [sortAsc, setSortAsc] = useState(true);
+  const allCards = useMemo(() => [...savedCards, ...DEMO_CARDS], [savedCards]);
   const sorted = useMemo(
-    () => [...cards].sort((a,b) => sortAsc ? a.name.localeCompare(b.name, "cs") : b.name.localeCompare(a.name, "cs")),
-    [sortAsc],
+    () => [...allCards].sort((a,b) => sortAsc ? a.name.localeCompare(b.name, "cs") : b.name.localeCompare(a.name, "cs")),
+    [allCards, sortAsc],
   );
 
   return (
@@ -93,12 +120,12 @@ function Home({ onAdd }: { onAdd: () => void }) {
 
       <section className="wallet-list">
         <div className="list-head">
-          <div className="list-title">Připravené pro Apple Wallet <span className="count">8</span></div>
+          <div className="list-title">Připravené pro Apple Wallet <span className="count">{allCards.length}</span></div>
           <button type="button" className="sort" onClick={() => setSortAsc(v => !v)}>Seřadit ⇅</button>
         </div>
         <div className="rows">
           {sorted.map((card) => (
-            <button className="card-row" type="button" key={card.name}>
+            <button className="card-row" type="button" key={card.id}>
               <CardLogo brand={card.brand} />
               <div className="card-copy">
                 <strong>{card.name}</strong>
@@ -123,25 +150,293 @@ function Home({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-function FirstSide({ onBack }: { onBack: () => void }) {
+async function tryDetectBarcode(file: File): Promise<string> {
+  const BarcodeDetectorCtor = (window as unknown as { BarcodeDetector?: new (opts?: { formats?: string[] }) => { detect: (source: ImageBitmap) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
+  if (!BarcodeDetectorCtor || !("createImageBitmap" in window)) return "";
+  try {
+    const bitmap = await createImageBitmap(file);
+    const detector = new BarcodeDetectorCtor({
+      formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e"],
+    });
+    const result = await detector.detect(bitmap);
+    bitmap.close();
+    return result[0]?.rawValue ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function FlowHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) {
+  return (
+    <header className="flow-header">
+      <button className="back" type="button" onClick={onBack} aria-label="Zpět">‹</button>
+      <div>
+        <div className="flow-kicker">Přidat kartu · {step}</div>
+        <div className="flow-title-small">{title}</div>
+      </div>
+    </header>
+  );
+}
+
+function ImagePicker({
+  title,
+  required,
+  preview,
+  onChoose,
+}: {
+  title: string;
+  required?: boolean;
+  preview: string;
+  onChoose: (file: File) => void;
+}) {
+  const handle = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onChoose(file);
+  };
+
+  return (
+    <label className={"dropzone " + (preview ? "has-preview" : "")}>
+      <input type="file" accept="image/*" capture="environment" onChange={handle} />
+      {preview ? (
+        <>
+          <img className="card-preview" src={preview} alt={title} />
+          <span className="replace-hint">Klepnutím změnit fotografii</span>
+        </>
+      ) : (
+        <>
+          <div className="capture-icon">▣</div>
+          <strong>{title}</strong>
+          <span>{required ? "Povinné · " : ""}Vyfotit nebo vybrat z galerie</span>
+        </>
+      )}
+    </label>
+  );
+}
+
+function FirstSide({
+  draft,
+  onDraft,
+  onBack,
+  onNext,
+}: {
+  draft: Draft;
+  onDraft: (next: Partial<Draft>) => void;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  const [scanning, setScanning] = useState(false);
+
+  const choose = async (file: File) => {
+    const url = URL.createObjectURL(file);
+    onDraft({ firstImage: url });
+    setScanning(true);
+    const code = await tryDetectBarcode(file);
+    if (code) onDraft({ firstImage: url, code });
+    setScanning(false);
+  };
+
   return (
     <main className="flow-screen">
-      <button className="back" type="button" onClick={onBack}>‹</button>
-      <div className="flow-kicker">Přidat kartu · 1 z 3</div>
-      <h2>První strana karty</h2>
-      <p>Vyfoť nebo vyber první stranu karty. Tato strana je povinná.</p>
-      <label className="dropzone">
-        <input type="file" accept="image/*" capture="environment" />
-        <strong>Vyfotit první stranu</strong>
-        <span>nebo vybrat z galerie</span>
-      </label>
+      <FlowHeader step="1 z 3" title="První strana" onBack={onBack} />
+      <section className="flow-card">
+        <div className="step-pill">1</div>
+        <h2>První strana karty</h2>
+        <p>Vyfoť nebo vyber první stranu karty. Tato strana je povinná.</p>
+        <ImagePicker title="První strana" required preview={draft.firstImage} onChoose={choose} />
+        <div className="truth-note">
+          {scanning ? "AxoCard hledá čárový kód nebo QR…" : draft.code ? "Kód byl skutečně rozpoznán z fotografie." : "Pokud je na fotografii čitelný kód, AxoCard se ho pokusí rozpoznat."}
+        </div>
+        <button className="primary" type="button" disabled={!draft.firstImage || scanning} onClick={onNext}>
+          Pokračovat
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function SecondSide({
+  draft,
+  onDraft,
+  onBack,
+  onNext,
+}: {
+  draft: Draft;
+  onDraft: (next: Partial<Draft>) => void;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  const [scanning, setScanning] = useState(false);
+
+  const choose = async (file: File) => {
+    const url = URL.createObjectURL(file);
+    onDraft({ secondImage: url });
+    setScanning(true);
+    const code = await tryDetectBarcode(file);
+    if (code) onDraft({ secondImage: url, code });
+    setScanning(false);
+  };
+
+  return (
+    <main className="flow-screen">
+      <FlowHeader step="2 z 3" title="Druhá strana" onBack={onBack} />
+      <section className="flow-card">
+        <div className="step-pill">2</div>
+        <h2>Druhá strana karty</h2>
+        <p className="optional">Volitelné</p>
+        <p>Vyfoť nebo vyber druhou stranu karty. Tady často bývá čárový kód nebo QR.</p>
+        <ImagePicker title="Druhá strana" preview={draft.secondImage} onChoose={choose} />
+        <div className="truth-note">
+          {scanning ? "AxoCard hledá čárový kód nebo QR…" : draft.code ? "Kód byl skutečně rozpoznán." : "Kód zatím rozpoznán nebyl. Lze jej doplnit ručně v kontrole."}
+        </div>
+        <div className="button-row">
+          <button className="secondary" type="button" onClick={onNext}>Přeskočit</button>
+          <button className="primary" type="button" disabled={scanning} onClick={onNext}>Pokračovat</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function Review({
+  draft,
+  onDraft,
+  onBack,
+  onSave,
+}: {
+  draft: Draft;
+  onDraft: (next: Partial<Draft>) => void;
+  onBack: () => void;
+  onSave: () => void;
+}) {
+  const canSave = draft.brand.trim().length > 0;
+
+  return (
+    <main className="flow-screen">
+      <FlowHeader step="3 z 3" title="Kontrola karty" onBack={onBack} />
+      <section className="flow-card">
+        <div className="step-pill">3</div>
+        <h2>Je vše v pořádku?</h2>
+        <p>Zkontroluj údaje a v případě potřeby je uprav.</p>
+
+        <div className="thumbs">
+          {draft.firstImage && <img src={draft.firstImage} alt="První strana" />}
+          {draft.secondImage && <img src={draft.secondImage} alt="Druhá strana" />}
+        </div>
+
+        <div className="field">
+          <label htmlFor="brand">Značka / název</label>
+          <input id="brand" value={draft.brand} onChange={(e) => onDraft({ brand: e.target.value })} placeholder="Např. BENU" />
+        </div>
+        <div className="field">
+          <label htmlFor="type">Typ</label>
+          <input id="type" value={draft.type} onChange={(e) => onDraft({ type: e.target.value })} placeholder="Věrnostní karta" />
+        </div>
+        <div className="field">
+          <label htmlFor="code">Čárový kód / QR</label>
+          <input id="code" value={draft.code} onChange={(e) => onDraft({ code: e.target.value })} placeholder="Doplňte ručně, pokud nebyl rozpoznán" />
+        </div>
+
+        <div className="truth-note">
+          AxoCard nevyplňuje falešný kód. Pokud se kód z fotografie nepodaří skutečně přečíst, zůstane pole prázdné.
+        </div>
+
+        <button className="primary" type="button" disabled={!canSave} onClick={onSave}>
+          Vytvořit kartu
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function Done({
+  card,
+  onHome,
+}: {
+  card: SavedCard;
+  onHome: () => void;
+}) {
+  const [message, setMessage] = useState("");
+
+  const share = async () => {
+    const text = [card.name, card.type, card.code ? "Kód: " + card.code : ""].filter(Boolean).join("\n");
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: card.name, text });
+        setMessage("Sdílení bylo otevřeno.");
+      } else {
+        await navigator.clipboard.writeText(text);
+        setMessage("Údaje karty byly zkopírovány.");
+      }
+    } catch {
+      setMessage("");
+    }
+  };
+
+  const wallet = () => {
+    setMessage("Skutečný Apple Wallet pass vyžaduje podepsaný .pkpass z Apple Developer účtu. V tomto webovém buildu jej zatím nefingujeme.");
+  };
+
+  return (
+    <main className="flow-screen done-screen">
+      <section className="flow-card done-card">
+        <div className="done-mark">✓</div>
+        <div className="done-eyebrow">Karta je připravená</div>
+        <h2>{card.name}</h2>
+        <p>{card.type}</p>
+        {card.code && <div className="code-box">{card.code}</div>}
+
+        <button className="wallet-button" type="button" onClick={wallet}> Přidat do Apple Wallet</button>
+        <button className="secondary full" type="button" onClick={share}>Sdílet kartu</button>
+        <button className="text-button" type="button" onClick={onHome}>Zpět na domovskou obrazovku</button>
+        {message && <div className="truth-note">{message}</div>}
+      </section>
     </main>
   );
 }
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("home");
-  return screen === "home"
-    ? <Home onAdd={() => setScreen("first")} />
-    : <FirstSide onBack={() => setScreen("home")} />;
+  const [savedCards, setSavedCards] = useState<SavedCard[]>(() => readSavedCards());
+  const [lastCard, setLastCard] = useState<SavedCard | null>(null);
+  const [draft, setDraft] = useState<Draft>({
+    firstImage: "",
+    secondImage: "",
+    brand: "",
+    type: "Věrnostní karta",
+    code: "",
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedCards));
+  }, [savedCards]);
+
+  const patchDraft = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
+
+  const start = () => {
+    setDraft({ firstImage: "", secondImage: "", brand: "", type: "Věrnostní karta", code: "" });
+    setScreen("first");
+  };
+
+  const save = () => {
+    const name = draft.brand.trim();
+    if (!name) return;
+    const card: SavedCard = {
+      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      brand: name,
+      name,
+      type: draft.type.trim() || "Věrnostní karta",
+      code: draft.code.trim(),
+      status: "ready",
+    };
+    setSavedCards((current) => [card, ...current]);
+    setLastCard(card);
+    setScreen("done");
+  };
+
+  if (screen === "home") return <Home onAdd={start} savedCards={savedCards} />;
+  if (screen === "first") return <FirstSide draft={draft} onDraft={patchDraft} onBack={() => setScreen("home")} onNext={() => setScreen("second")} />;
+  if (screen === "second") return <SecondSide draft={draft} onDraft={patchDraft} onBack={() => setScreen("first")} onNext={() => setScreen("review")} />;
+  if (screen === "review") return <Review draft={draft} onDraft={patchDraft} onBack={() => setScreen("second")} onSave={save} />;
+  if (screen === "done" && lastCard) return <Done card={lastCard} onHome={() => setScreen("home")} />;
+  return <Home onAdd={start} savedCards={savedCards} />;
 }
