@@ -230,14 +230,101 @@ async function tryReadProviderFromImage(file: File): Promise<string> {
   }
 }
 
+function findBrightBarcodeRegion(bitmap: ImageBitmap): { x: number; y: number; w: number; h: number } | null {
+  const maxSide = 300;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  const pixels = ctx.getImageData(0, 0, w, h).data;
+  const bright = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const lum = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+      bright[y * w + x] = lum > 215 ? 1 : 0;
+    }
+  }
+
+  const seen = new Uint8Array(w * h);
+  let best: { x0: number; y0: number; x1: number; y1: number; area: number; score: number } | null = null;
+
+  for (let sy = 0; sy < h; sy++) {
+    for (let sx = 0; sx < w; sx++) {
+      const seed = sy * w + sx;
+      if (!bright[seed] || seen[seed]) continue;
+
+      const qx: number[] = [sx];
+      const qy: number[] = [sy];
+      seen[seed] = 1;
+      let head = 0;
+      let x0 = sx, x1 = sx, y0 = sy, y1 = sy, area = 0;
+
+      while (head < qx.length) {
+        const x = qx[head];
+        const y = qy[head];
+        head++;
+        area++;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+
+        const neighbors = [[x-1,y],[x+1,y],[x,y-1],[x,y+1]];
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          const idx = ny * w + nx;
+          if (bright[idx] && !seen[idx]) {
+            seen[idx] = 1;
+            qx.push(nx);
+            qy.push(ny);
+          }
+        }
+      }
+
+      const bw = x1 - x0 + 1;
+      const bh = y1 - y0 + 1;
+      const boxArea = bw * bh;
+      const ratio = bw / bh;
+      const fill = area / boxArea;
+      const cy = ((y0 + y1) / 2) / h;
+
+      // Typical Wallet/card barcode panel: wide, bright, fairly solid, not at the very bottom UI stack.
+      if (area < 120 || ratio < 1.8 || ratio > 6.5 || fill < 0.55 || cy < 0.25 || cy > 0.86) continue;
+
+      const centered = 1 - Math.min(1, Math.abs(((x0 + x1) / 2) / w - 0.5) * 1.5);
+      const verticalPreference = 1 - Math.min(1, Math.abs(cy - 0.62));
+      const score = boxArea * fill * (0.6 + 0.25 * centered + 0.15 * verticalPreference);
+
+      if (!best || score > best.score) best = { x0, y0, x1, y1, area, score };
+    }
+  }
+
+  if (!best) return null;
+
+  const inv = 1 / scale;
+  const padX = (best.x1 - best.x0 + 1) * inv * 0.08;
+  const padY = (best.y1 - best.y0 + 1) * inv * 0.15;
+  const x = Math.max(0, best.x0 * inv - padX);
+  const y = Math.max(0, best.y0 * inv - padY);
+  const rw = Math.min(bitmap.width - x, (best.x1 - best.x0 + 1) * inv + padX * 2);
+  const rh = Math.min(bitmap.height - y, (best.y1 - best.y0 + 1) * inv + padY * 2);
+  return { x, y, w: rw, h: rh };
+}
+
 async function tryDetectBarcode(file: File): Promise<{ code: string; format: string }> {
   const BarcodeDetectorCtor = (window as unknown as {
     BarcodeDetector?: new (opts?: { formats?: string[] }) => {
       detect: (source: ImageBitmap | HTMLCanvasElement) => Promise<Array<{ rawValue?: string; format?: string }>>;
     };
   }).BarcodeDetector;
-
-  const normalizeNativeFormat = (format: string) => format.toUpperCase();
 
   const tryNative = async (source: ImageBitmap | HTMLCanvasElement) => {
     if (!BarcodeDetectorCtor) return { code: "", format: "" };
@@ -246,18 +333,15 @@ async function tryDetectBarcode(file: File): Promise<{ code: string; format: str
         formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e"],
       });
       const result = await detector.detect(source);
-      const detected = result[0]?.rawValue?.trim() ?? "";
-      return detected
-        ? { code: detected, format: normalizeNativeFormat(result[0]?.format ?? "") }
-        : { code: "", format: "" };
+      const code = result[0]?.rawValue?.trim() ?? "";
+      return code ? { code, format: (result[0]?.format ?? "").toUpperCase() } : { code: "", format: "" };
     } catch {
       return { code: "", format: "" };
     }
   };
 
   const reader = new BrowserMultiFormatReader();
-
-  const tryZXingCanvas = async (canvas: HTMLCanvasElement) => {
+  const tryZXing = async (canvas: HTMLCanvasElement) => {
     try {
       const result = await reader.decodeFromCanvas(canvas);
       return {
@@ -271,55 +355,73 @@ async function tryDetectBarcode(file: File): Promise<{ code: string; format: str
 
   const bitmap = await createImageBitmap(file);
   try {
-    // First try the untouched source.
     const nativeFull = await tryNative(bitmap);
     if (nativeFull.code) return nativeFull;
 
-    // Build several likely barcode regions. Loyalty cards often put the code in the
-    // lower half or lower third; screenshots can have lots of unrelated UI around it.
+    const detectedBright = findBrightBarcodeRegion(bitmap);
+
     const regions = [
-      { x: 0, y: 0, w: 1, h: 1 },
-      { x: 0, y: 0.40, w: 1, h: 0.60 },
-      { x: 0, y: 0.55, w: 1, h: 0.45 },
-      { x: 0.05, y: 0.45, w: 0.90, h: 0.45 },
-      { x: 0.10, y: 0.50, w: 0.80, h: 0.35 },
-      { x: 0.05, y: 0.25, w: 0.90, h: 0.50 },
+      ...(detectedBright ? [detectedBright] : []),
+      { x: 0, y: bitmap.height * 0.35, w: bitmap.width, h: bitmap.height * 0.55 },
+      { x: bitmap.width * 0.05, y: bitmap.height * 0.45, w: bitmap.width * 0.90, h: bitmap.height * 0.38 },
+      { x: bitmap.width * 0.10, y: bitmap.height * 0.50, w: bitmap.width * 0.80, h: bitmap.height * 0.30 },
+      { x: 0, y: 0, w: bitmap.width, h: bitmap.height },
     ];
 
     for (const region of regions) {
-      const sx = Math.max(0, Math.floor(bitmap.width * region.x));
-      const sy = Math.max(0, Math.floor(bitmap.height * region.y));
-      const sw = Math.max(1, Math.floor(bitmap.width * region.w));
-      const sh = Math.max(1, Math.floor(bitmap.height * region.h));
+      const sx = Math.max(0, Math.floor(region.x));
+      const sy = Math.max(0, Math.floor(region.y));
+      const sw = Math.max(1, Math.min(bitmap.width - sx, Math.floor(region.w)));
+      const sh = Math.max(1, Math.min(bitmap.height - sy, Math.floor(region.h)));
 
-      const scales = [1, 1.5];
-      for (const scale of scales) {
+      for (const scale of [1.25, 1.75, 2.25]) {
         const canvas = document.createElement("canvas");
-        canvas.width = Math.min(1800, Math.max(320, Math.floor(sw * scale)));
-        canvas.height = Math.min(1800, Math.max(220, Math.floor(sh * scale)));
+        canvas.width = Math.min(2200, Math.max(420, Math.round(sw * scale)));
+        canvas.height = Math.min(1600, Math.max(220, Math.round(sh * scale)));
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (!ctx) continue;
 
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
 
         const native = await tryNative(canvas);
         if (native.code) return native;
 
-        const direct = await tryZXingCanvas(canvas);
+        const direct = await tryZXing(canvas);
         if (direct.code) return direct;
 
-        // High-contrast grayscale pass helps with screenshots and dark cards.
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const d = imageData.data;
-        for (let i = 0; i < d.length; i += 4) {
-          const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-          const boosted = gray < 150 ? Math.max(0, gray - 35) : Math.min(255, gray + 35);
-          d[i] = d[i + 1] = d[i + 2] = boosted;
-        }
-        ctx.putImageData(imageData, 0, 0);
+        const original = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        const contrasted = await tryZXingCanvas(canvas);
-        if (contrasted.code) return contrasted;
+        // grayscale + contrast
+        const contrasted = new ImageData(new Uint8ClampedArray(original.data), original.width, original.height);
+        for (let i = 0; i < contrasted.data.length; i += 4) {
+          const gray = Math.round(0.299 * contrasted.data[i] + 0.587 * contrasted.data[i + 1] + 0.114 * contrasted.data[i + 2]);
+          const v = gray < 155 ? Math.max(0, gray - 45) : Math.min(255, gray + 45);
+          contrasted.data[i] = contrasted.data[i + 1] = contrasted.data[i + 2] = v;
+        }
+        ctx.putImageData(contrasted, 0, 0);
+        const contrastResult = await tryZXing(canvas);
+        if (contrastResult.code) return contrastResult;
+
+        // hard threshold - often best for black bars on a white Wallet panel
+        const thresholded = new ImageData(new Uint8ClampedArray(original.data), original.width, original.height);
+        for (let i = 0; i < thresholded.data.length; i += 4) {
+          const gray = Math.round(0.299 * thresholded.data[i] + 0.587 * thresholded.data[i + 1] + 0.114 * thresholded.data[i + 2]);
+          const v = gray < 165 ? 0 : 255;
+          thresholded.data[i] = thresholded.data[i + 1] = thresholded.data[i + 2] = v;
+        }
+        ctx.putImageData(thresholded, 0, 0);
+        const thresholdResult = await tryZXing(canvas);
+        if (thresholdResult.code) return thresholdResult;
+
+        // inverted threshold fallback
+        for (let i = 0; i < thresholded.data.length; i += 4) {
+          const v = 255 - thresholded.data[i];
+          thresholded.data[i] = thresholded.data[i + 1] = thresholded.data[i + 2] = v;
+        }
+        ctx.putImageData(thresholded, 0, 0);
+        const inverted = await tryZXing(canvas);
+        if (inverted.code) return inverted;
       }
     }
 
