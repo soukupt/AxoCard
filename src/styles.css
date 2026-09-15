@@ -330,3 +330,15 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width:560px) {
   .picker-actions { grid-template-columns:1fr; }
 }
+
+
+/* iPhone-native single picker: iOS presents Camera / Photo Library choices itself */
+.picker-actions { display:none; }
+.unified-picker {
+  width:100%;
+  margin-top:12px;
+  border:1px solid #2dc7e9;
+  color:#f4fbff;
+  background:linear-gradient(90deg,#12c7ed,#3260ff 55%,#ed3aa8);
+  box-shadow:0 12px 35px rgba(44,122,239,.22);
+}

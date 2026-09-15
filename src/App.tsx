@@ -209,18 +209,12 @@ function ImagePicker({
         )}
       </div>
 
-      <div className="picker-actions">
-        <label className="picker-button camera-button">
-          <input type="file" accept="image/*" capture="environment" onChange={handle} />
-          <span>📷 Vyfotit</span>
-        </label>
-        <label className="picker-button gallery-button">
-          <input type="file" accept="image/*" onChange={handle} />
-          <span>🖼 Vybrat z galerie</span>
-        </label>
-      </div>
+      <label className="picker-button unified-picker">
+        <input type="file" accept="image/*" onChange={handle} />
+        <span>📷 Vyfotit / nahrát</span>
+      </label>
 
-      {preview && <div className="replace-copy">Fotografii můžeš změnit kamerou nebo výběrem z galerie.</div>}
+      {preview && <div className="replace-copy">Klepnutím můžeš fotografii znovu vyfotit nebo vybrat jinou z Fotek.</div>}
     </div>
   );
 }
