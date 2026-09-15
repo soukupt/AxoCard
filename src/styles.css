@@ -351,3 +351,36 @@ button { -webkit-tap-highlight-color: transparent; }
   box-shadow:0 14px 38px rgba(78,93,255,.22), 0 0 28px rgba(236,58,168,.12);
 }
 .button-row { display:block; }
+
+
+/* Scannable code shown on the completed card, matching the original AxoCard behavior */
+.barcode-visual {
+  margin:22px 0 10px;
+  padding:14px;
+  border-radius:20px;
+  background:#fff;
+  overflow:hidden;
+}
+.barcode-visual svg {
+  display:block;
+  width:100%;
+  height:auto;
+  min-height:120px;
+}
+.barcode-visual img {
+  display:block;
+  width:min(76%,300px);
+  height:auto;
+  margin:0 auto;
+}
+.barcode-caption {
+  margin-top:8px;
+  color:#4a4a4a;
+  font-size:12px;
+  font-weight:700;
+}
+.raw-code {
+  margin-top:8px;
+  font-size:14px;
+  letter-spacing:.04em;
+}

@@ -1,5 +1,8 @@
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BarcodeFormat } from "@zxing/library";
+import JsBarcode from "jsbarcode";
+import QRCode from "qrcode";
 import { createWorker } from "tesseract.js";
 import "./styles.css";
 
@@ -12,6 +15,7 @@ type SavedCard = {
   name: string;
   type: string;
   code: string;
+  codeFormat: string;
   status: CardStatus;
 };
 
@@ -21,17 +25,18 @@ type Draft = {
   brand: string;
   type: string;
   code: string;
+  codeFormat: string;
 };
 
 const DEMO_CARDS: SavedCard[] = [
-  { id: "tesco", brand: "TESCO", name: "Tesco Clubcard", type: "Věrnostní karta", code: "", status: "wallet" },
-  { id: "kaufland", brand: "K", name: "Kaufland Card", type: "Věrnostní karta", code: "", status: "wallet" },
-  { id: "benu", brand: "BENU", name: "BENU", type: "Lékárna", code: "", status: "wallet" },
-  { id: "albert", brand: "albert", name: "Albert", type: "Věrnostní karta", code: "", status: "ready" },
-  { id: "teta", brand: "teta", name: "Teta", type: "Drogerie", code: "", status: "ready" },
-  { id: "mobelix", brand: "MÖBELIX", name: "Möbelix", type: "Věrnostní karta", code: "", status: "none" },
-  { id: "billa", brand: "BILLA", name: "BILLA Bonus Club", type: "Věrnostní karta", code: "", status: "wallet" },
-  { id: "ikea", brand: "IKEA", name: "IKEA Family", type: "Věrnostní karta", code: "", status: "ready" },
+  { id: "tesco", brand: "TESCO", name: "Tesco Clubcard", type: "Věrnostní karta", code: "", codeFormat: "", status: "wallet" },
+  { id: "kaufland", brand: "K", name: "Kaufland Card", type: "Věrnostní karta", code: "", codeFormat: "", status: "wallet" },
+  { id: "benu", brand: "BENU", name: "BENU", type: "Lékárna", code: "", codeFormat: "", status: "wallet" },
+  { id: "albert", brand: "albert", name: "Albert", type: "Věrnostní karta", code: "", codeFormat: "", status: "ready" },
+  { id: "teta", brand: "teta", name: "Teta", type: "Drogerie", code: "", codeFormat: "", status: "ready" },
+  { id: "mobelix", brand: "MÖBELIX", name: "Möbelix", type: "Věrnostní karta", code: "", codeFormat: "", status: "none" },
+  { id: "billa", brand: "BILLA", name: "BILLA Bonus Club", type: "Věrnostní karta", code: "", codeFormat: "", status: "wallet" },
+  { id: "ikea", brand: "IKEA", name: "IKEA Family", type: "Věrnostní karta", code: "", codeFormat: "", status: "ready" },
 ];
 
 const FIGMA = {
@@ -196,10 +201,10 @@ async function tryReadProviderFromImage(file: File): Promise<string> {
   }
 }
 
-async function tryDetectBarcode(file: File): Promise<string> {
+async function tryDetectBarcode(file: File): Promise<{ code: string; format: string }> {
   const BarcodeDetectorCtor = (window as unknown as {
     BarcodeDetector?: new (opts?: { formats?: string[] }) => {
-      detect: (source: ImageBitmap) => Promise<Array<{ rawValue?: string }>>;
+      detect: (source: ImageBitmap) => Promise<Array<{ rawValue?: string; format?: string }>>;
     };
   }).BarcodeDetector;
 
@@ -212,7 +217,7 @@ async function tryDetectBarcode(file: File): Promise<string> {
       const result = await detector.detect(bitmap);
       bitmap.close();
       const detected = result[0]?.rawValue?.trim() ?? "";
-      if (detected) return detected;
+      if (detected) return { code: detected, format: (result[0]?.format ?? "").toUpperCase() };
     } catch {
       // Safari/iOS often does not expose BarcodeDetector; fall through to ZXing.
     }
@@ -222,21 +227,24 @@ async function tryDetectBarcode(file: File): Promise<string> {
   try {
     const reader = new BrowserMultiFormatReader();
     const result = await reader.decodeFromImageUrl(url);
-    return result.getText().trim();
+    return {
+      code: result.getText().trim(),
+      format: String(BarcodeFormat[result.getBarcodeFormat()] ?? ""),
+    };
   } catch {
-    return "";
+    return { code: "", format: "" };
   } finally {
     URL.revokeObjectURL(url);
   }
 }
 
 
-async function recognizeCardSide(file: File): Promise<{ code: string; provider: string }> {
-  const [code, provider] = await Promise.all([
+async function recognizeCardSide(file: File): Promise<{ code: string; codeFormat: string; provider: string }> {
+  const [barcode, provider] = await Promise.all([
     tryDetectBarcode(file),
     tryReadProviderFromImage(file),
   ]);
-  return { code, provider };
+  return { code: barcode.code, codeFormat: barcode.format, provider };
 }
 
 function FlowHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) {
@@ -309,10 +317,10 @@ function FirstSide({
     const url = URL.createObjectURL(file);
     onDraft({ firstImage: url });
     setScanning(true);
-    const { code, provider } = await recognizeCardSide(file);
+    const { code, codeFormat, provider } = await recognizeCardSide(file);
     onDraft({
       firstImage: url,
-      ...(code ? { code } : {}),
+      ...(code ? { code, codeFormat } : {}),
       ...(provider ? { brand: provider } : {}),
     });
     setScanning(false);
@@ -358,11 +366,11 @@ function SecondSide({
     const url = URL.createObjectURL(file);
     onDraft({ secondImage: url });
     setScanning(true);
-    const { code, provider } = await recognizeCardSide(file);
+    const { code, codeFormat, provider } = await recognizeCardSide(file);
 
     onDraft({
       secondImage: url,
-      ...(!draft.code && code ? { code } : {}),
+      ...(!draft.code && code ? { code, codeFormat } : {}),
       ...(!draft.brand && provider ? { brand: provider } : {}),
     });
     setScanning(false);
@@ -428,7 +436,7 @@ function Review({
         </div>
         <div className="field">
           <label htmlFor="code">Čárový kód / QR</label>
-          <input id="code" value={draft.code} onChange={(e) => onDraft({ code: e.target.value })} placeholder="Doplňte ručně, pokud nebyl rozpoznán" />
+          <input id="code" value={draft.code} onChange={(e) => onDraft({ code: e.target.value, codeFormat: "" })} placeholder="Doplňte ručně, pokud nebyl rozpoznán" />
         </div>
 
         <div className="truth-note">
@@ -440,6 +448,71 @@ function Review({
         </button>
       </section>
     </main>
+  );
+}
+
+function BarcodeVisual({ code, format }: { code: string; format: string }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [qrUrl, setQrUrl] = useState("");
+
+  useEffect(() => {
+    setQrUrl("");
+    if (!code) return;
+
+    const normalized = format.toUpperCase();
+    if (normalized.includes("QR")) {
+      QRCode.toDataURL(code, { margin: 1, width: 300, errorCorrectionLevel: "M" })
+        .then(setQrUrl)
+        .catch(() => setQrUrl(""));
+      return;
+    }
+
+    if (!svgRef.current) return;
+    const formats: Record<string, string> = {
+      EAN_13: "EAN13", EAN13: "EAN13",
+      EAN_8: "EAN8", EAN8: "EAN8",
+      CODE_128: "CODE128", CODE128: "CODE128",
+      CODE_39: "CODE39", CODE39: "CODE39",
+      UPC_A: "UPC", UPCA: "UPC",
+      UPC_E: "UPC", UPCE: "UPC",
+    };
+
+    try {
+      JsBarcode(svgRef.current, code, {
+        format: formats[normalized] ?? "CODE128",
+        lineColor: "#111111",
+        background: "#ffffff",
+        width: 2,
+        height: 96,
+        margin: 12,
+        displayValue: true,
+        fontSize: 18,
+      });
+    } catch {
+      try {
+        JsBarcode(svgRef.current, code, {
+          format: "CODE128",
+          lineColor: "#111111",
+          background: "#ffffff",
+          width: 2,
+          height: 96,
+          margin: 12,
+          displayValue: true,
+          fontSize: 18,
+        });
+      } catch {
+        // Numeric/text fallback remains visible below.
+      }
+    }
+  }, [code, format]);
+
+  if (!code) return null;
+
+  return (
+    <div className="barcode-visual">
+      {qrUrl ? <img src={qrUrl} alt="QR kód karty" /> : <svg ref={svgRef} aria-label="Čárový kód karty" />}
+      <div className="barcode-caption">Kód pro načtení u pokladny</div>
+    </div>
   );
 }
 
@@ -478,7 +551,7 @@ function Done({
         <div className="done-eyebrow">Karta je připravená</div>
         <h2>{card.name}</h2>
         <p>{card.type}</p>
-        {card.code && <div className="code-box">{card.code}</div>}
+        {card.code && (<><BarcodeVisual code={card.code} format={card.codeFormat} /><div className="code-box raw-code">{card.code}</div></>)}
 
         <button className="wallet-button" type="button" onClick={wallet}> Přidat do Apple Wallet</button>
         <button className="secondary full" type="button" onClick={share}>Sdílet kartu</button>
@@ -499,6 +572,7 @@ export function App() {
     brand: "",
     type: "Věrnostní karta",
     code: "",
+    codeFormat: "",
   });
 
   useEffect(() => {
@@ -508,7 +582,7 @@ export function App() {
   const patchDraft = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
 
   const start = () => {
-    setDraft({ firstImage: "", secondImage: "", brand: "", type: "Věrnostní karta", code: "" });
+    setDraft({ firstImage: "", secondImage: "", brand: "", type: "Věrnostní karta", code: "", codeFormat: "" });
     setScreen("first");
   };
 
@@ -521,6 +595,7 @@ export function App() {
       name,
       type: draft.type.trim() || "Věrnostní karta",
       code: draft.code.trim(),
+      codeFormat: draft.codeFormat,
       status: "ready",
     };
     setSavedCards((current) => [card, ...current]);
