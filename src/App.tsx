@@ -230,6 +230,15 @@ async function tryDetectBarcode(file: File): Promise<string> {
   }
 }
 
+
+async function recognizeCardSide(file: File): Promise<{ code: string; provider: string }> {
+  const [code, provider] = await Promise.all([
+    tryDetectBarcode(file),
+    tryReadProviderFromImage(file),
+  ]);
+  return { code, provider };
+}
+
 function FlowHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) {
   return (
     <header className="flow-header">
@@ -300,10 +309,7 @@ function FirstSide({
     const url = URL.createObjectURL(file);
     onDraft({ firstImage: url });
     setScanning(true);
-    const [code, provider] = await Promise.all([
-      tryDetectBarcode(file),
-      tryReadProviderFromImage(file),
-    ]);
+    const { code, provider } = await recognizeCardSide(file);
     onDraft({
       firstImage: url,
       ...(code ? { code } : {}),
@@ -352,13 +358,11 @@ function SecondSide({
     const url = URL.createObjectURL(file);
     onDraft({ secondImage: url });
     setScanning(true);
-    const [code, provider] = await Promise.all([
-      tryDetectBarcode(file),
-      tryReadProviderFromImage(file),
-    ]);
+    const { code, provider } = await recognizeCardSide(file);
+
     onDraft({
       secondImage: url,
-      ...(code ? { code } : {}),
+      ...(!draft.code && code ? { code } : {}),
       ...(!draft.brand && provider ? { brand: provider } : {}),
     });
     setScanning(false);
@@ -374,7 +378,11 @@ function SecondSide({
         <p>Vyfoť nebo vyber druhou stranu karty. Tady často bývá čárový kód nebo QR.</p>
         <ImagePicker title="Druhá strana" preview={draft.secondImage} onChoose={choose} />
         <div className="truth-note">
-          {scanning ? "AxoCard hledá čárový kód nebo QR…" : draft.code ? "Kód byl skutečně rozpoznán." : "Kód zatím rozpoznán nebyl. Lze jej doplnit ručně v kontrole."}
+          {scanning
+            ? "AxoCard čte druhou stranu: hledá kód i poskytovatele…"
+            : draft.code || draft.brand
+              ? [draft.code ? "Kód rozpoznán." : "", draft.brand ? `Poskytovatel: ${draft.brand}.` : ""].filter(Boolean).join(" ")
+              : "AxoCard zkusí z druhé strany doplnit to, co na první nenašel — kód i poskytovatele."}
         </div>
         <button className="primary" type="button" disabled={scanning} onClick={onNext}>
           Pokračovat
