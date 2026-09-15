@@ -279,3 +279,54 @@ button { -webkit-tap-highlight-color: transparent; }
   .flow-card { padding:22px 18px; border-radius:24px; }
   .button-row { grid-template-columns:1fr; }
 }
+
+
+/* Separate camera / gallery controls: iOS Safari must not force camera for gallery selection */
+.image-picker { margin-top:22px; }
+.image-picker .dropzone { margin-top:0; cursor:default; min-height:clamp(230px,50vw,380px); }
+.image-picker .dropzone input { display:none; }
+.picker-actions {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  margin-top:12px;
+}
+.picker-button {
+  position:relative;
+  min-height:54px;
+  border-radius:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 14px;
+  font-weight:800;
+  cursor:pointer;
+  user-select:none;
+}
+.picker-button input {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  opacity:0;
+  cursor:pointer;
+}
+.camera-button {
+  border:1px solid #2dc7e9;
+  color:#dff9ff;
+  background:linear-gradient(180deg,rgba(16,72,93,.88),rgba(8,31,42,.92));
+}
+.gallery-button {
+  border:1px solid #6d66d9;
+  color:#efedff;
+  background:linear-gradient(180deg,rgba(60,47,113,.82),rgba(22,20,50,.92));
+}
+.replace-copy {
+  margin-top:10px;
+  color:#718e9e;
+  font-size:12px;
+  text-align:center;
+}
+@media (max-width:560px) {
+  .picker-actions { grid-template-columns:1fr; }
+}

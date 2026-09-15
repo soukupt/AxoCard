@@ -192,24 +192,36 @@ function ImagePicker({
   const handle = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onChoose(file);
+    e.target.value = "";
   };
 
   return (
-    <label className={"dropzone " + (preview ? "has-preview" : "")}>
-      <input type="file" accept="image/*" capture="environment" onChange={handle} />
-      {preview ? (
-        <>
+    <div className={"image-picker " + (preview ? "has-preview" : "")}>
+      <div className="dropzone">
+        {preview ? (
           <img className="card-preview" src={preview} alt={title} />
-          <span className="replace-hint">Klepnutím změnit fotografii</span>
-        </>
-      ) : (
-        <>
-          <div className="capture-icon">▣</div>
-          <strong>{title}</strong>
-          <span>{required ? "Povinné · " : ""}Vyfotit nebo vybrat z galerie</span>
-        </>
-      )}
-    </label>
+        ) : (
+          <>
+            <div className="capture-icon">▣</div>
+            <strong>{title}</strong>
+            <span>{required ? "Povinné" : "Volitelné"}</span>
+          </>
+        )}
+      </div>
+
+      <div className="picker-actions">
+        <label className="picker-button camera-button">
+          <input type="file" accept="image/*" capture="environment" onChange={handle} />
+          <span>📷 Vyfotit</span>
+        </label>
+        <label className="picker-button gallery-button">
+          <input type="file" accept="image/*" onChange={handle} />
+          <span>🖼 Vybrat z galerie</span>
+        </label>
+      </div>
+
+      {preview && <div className="replace-copy">Fotografii můžeš změnit kamerou nebo výběrem z galerie.</div>}
+    </div>
   );
 }
 
