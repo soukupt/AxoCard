@@ -26,6 +26,7 @@ type Draft = {
   type: string;
   code: string;
   codeFormat: string;
+  codeSource: "barcode" | "text" | "";
 };
 
 const DEMO_CARDS: SavedCard[] = [
@@ -171,9 +172,8 @@ function inferProviderFromFilename(file: File): string {
   return hit ?? "";
 }
 
-async function tryReadProviderFromImage(file: File): Promise<string> {
+async function tryReadCardText(file: File): Promise<{ provider: string; cardNumber: string }> {
   const filenameHit = inferProviderFromFilename(file);
-  if (filenameHit) return filenameHit;
 
   try {
     const worker = await createWorker("eng");
@@ -186,47 +186,83 @@ async function tryReadProviderFromImage(file: File): Promise<string> {
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase();
 
-    const knownHit = KNOWN_PROVIDERS.find((provider) => {
-      const key = provider
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
-      return normalized.includes(key);
-    });
-    if (knownHit) return knownHit;
+    let provider = filenameHit;
 
-    // Generic fallback for providers that are not in our known-brand list.
-    // We prefer short, logo-like uppercase words and ignore generic card labels.
-    const stopWords = new Set([
-      "CLENSKY", "CLENSKY PRUKAZ", "PRUKAZ", "CISLO", "CISLO KARTY", "KARTY",
-      "KARTA", "KLUB", "CLUB", "CARD", "MEMBER", "MEMBERSHIP", "LOYALTY",
-      "VERNOSTNI", "ZAKAZNICKA", "ZAKAZNICKY", "CUSTOMER", "ID"
-    ]);
+    if (!provider) {
+      const knownHit = KNOWN_PROVIDERS.find((candidate) => {
+        const key = candidate
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        return normalized.includes(key);
+      });
+      provider = knownHit ?? "";
+    }
 
-    const candidates = rawText
+    if (!provider) {
+      const stopWords = new Set([
+        "CLENSKY", "CLENSKY PRUKAZ", "PRUKAZ", "CISLO", "CISLO KARTY", "KARTY",
+        "KARTA", "KLUB", "CLUB", "CARD", "MEMBER", "MEMBERSHIP", "LOYALTY",
+        "VERNOSTNI", "ZAKAZNICKA", "ZAKAZNICKY", "CUSTOMER", "ID"
+      ]);
+
+      const candidates = rawText
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .flatMap((line) => [line, ...line.split(/\s+/)])
+        .map((value) => value.replace(/[^A-Za-z0-9.&-]/g, "").trim())
+        .filter((value) => value.length >= 2 && value.length <= 24)
+        .filter((value) => !/^\d+$/.test(value))
+        .filter((value) => !stopWords.has(value.toUpperCase()))
+        .map((value) => {
+          const letters = value.replace(/[^A-Za-z]/g, "");
+          const upper = letters.replace(/[^A-Z]/g, "").length;
+          const upperRatio = letters.length ? upper / letters.length : 0;
+          const score =
+            (upperRatio > 0.85 ? 5 : 0) +
+            (value.length >= 3 && value.length <= 10 ? 3 : 0) +
+            (/^[A-Z0-9.&-]+$/.test(value) ? 2 : 0);
+          return { value, score };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      provider = candidates[0]?.score >= 5 ? candidates[0].value : "";
+    }
+
+    // Fallback for screenshots where the barcode graphic itself is not decodable
+    // but the human-readable membership/card number is printed next to it.
+    // Prefer a number near "card number" labels; otherwise use the longest plausible digit run.
+    const normalizedLines = rawText
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
       .split(/\n+/)
       .map((line) => line.trim())
-      .filter(Boolean)
-      .flatMap((line) => [line, ...line.split(/\s+/)])
-      .map((value) => value.replace(/[^A-Za-z0-9.&-]/g, "").trim())
-      .filter((value) => value.length >= 2 && value.length <= 24)
-      .filter((value) => !/^\d+$/.test(value))
-      .filter((value) => !stopWords.has(value.toUpperCase()))
-      .map((value) => {
-        const letters = value.replace(/[^A-Za-z]/g, "");
-        const upper = letters.replace(/[^A-Z]/g, "").length;
-        const upperRatio = letters.length ? upper / letters.length : 0;
-        const score =
-          (upperRatio > 0.85 ? 5 : 0) +
-          (value.length >= 3 && value.length <= 10 ? 3 : 0) +
-          (/^[A-Z0-9.&-]+$/.test(value) ? 2 : 0);
-        return { value, score };
-      })
-      .sort((a, b) => b.score - a.score);
+      .filter(Boolean);
 
-    return candidates[0]?.score >= 5 ? candidates[0].value : "";
+    let cardNumber = "";
+    for (let i = 0; i < normalizedLines.length; i++) {
+      const line = normalizedLines[i].toLowerCase();
+      if (/cislo\s*karty|card\s*(number|no)|member\s*(number|no)|membership\s*(number|no)/i.test(line)) {
+        const nearby = [normalizedLines[i], normalizedLines[i + 1] ?? ""].join(" ");
+        const match = nearby.match(/\b\d{6,20}\b/);
+        if (match) {
+          cardNumber = match[0];
+          break;
+        }
+      }
+    }
+
+    if (!cardNumber) {
+      const numbers = rawText.match(/\b\d{6,20}\b/g) ?? [];
+      cardNumber = numbers
+        .filter((value) => !/^20\d{6,12}$/.test(value))
+        .sort((a, b) => b.length - a.length)[0] ?? "";
+    }
+
+    return { provider, cardNumber };
   } catch {
-    return "";
+    return { provider: filenameHit, cardNumber: "" };
   }
 }
 
@@ -431,12 +467,36 @@ async function tryDetectBarcode(file: File): Promise<{ code: string; format: str
   }
 }
 
-async function recognizeCardSide(file: File): Promise<{ code: string; codeFormat: string; provider: string }> {
-  const [barcode, provider] = await Promise.all([
+async function recognizeCardSide(file: File): Promise<{ code: string; codeFormat: string; provider: string; codeSource: "barcode" | "text" | "" }> {
+  const [barcode, text] = await Promise.all([
     tryDetectBarcode(file),
-    tryReadProviderFromImage(file),
+    tryReadCardText(file),
   ]);
-  return { code: barcode.code, codeFormat: barcode.format, provider };
+
+  if (barcode.code) {
+    return {
+      code: barcode.code,
+      codeFormat: barcode.format,
+      provider: text.provider,
+      codeSource: "barcode",
+    };
+  }
+
+  if (text.cardNumber) {
+    return {
+      code: text.cardNumber,
+      codeFormat: "CODE128",
+      provider: text.provider,
+      codeSource: "text",
+    };
+  }
+
+  return {
+    code: "",
+    codeFormat: "",
+    provider: text.provider,
+    codeSource: "",
+  };
 }
 
 function FlowHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) {
@@ -509,10 +569,10 @@ function FirstSide({
     const url = URL.createObjectURL(file);
     onDraft({ firstImage: url });
     setScanning(true);
-    const { code, codeFormat, provider } = await recognizeCardSide(file);
+    const { code, codeFormat, provider, codeSource } = await recognizeCardSide(file);
     onDraft({
       firstImage: url,
-      ...(code ? { code, codeFormat } : {}),
+      ...(code ? { code, codeFormat, codeSource } : {}),
       ...(provider ? { brand: provider } : {}),
     });
     setScanning(false);
@@ -530,7 +590,10 @@ function FirstSide({
           {scanning
             ? "AxoCard čte kód a hledá název poskytovatele…"
             : draft.code || draft.brand
-              ? [draft.code ? "Kód rozpoznán." : "", draft.brand ? `Poskytovatel: ${draft.brand}.` : ""].filter(Boolean).join(" ")
+              ? [
+                  draft.code ? (draft.codeSource === "text" ? "Číslo karty načteno z textu; vytvoří se z něj skenovatelný Code 128." : "Čárový/QR kód rozpoznán.") : "",
+                  draft.brand ? `Poskytovatel: ${draft.brand}.` : ""
+                ].filter(Boolean).join(" ")
               : "AxoCard se pokusí přečíst kód i název poskytovatele přímo z fotografie. U screenshotů z Walletu zkouší i ořez a zvýšení kontrastu."}
         </div>
         <button className="primary" type="button" disabled={!draft.firstImage || scanning} onClick={onNext}>
@@ -558,11 +621,11 @@ function SecondSide({
     const url = URL.createObjectURL(file);
     onDraft({ secondImage: url });
     setScanning(true);
-    const { code, codeFormat, provider } = await recognizeCardSide(file);
+    const { code, codeFormat, provider, codeSource } = await recognizeCardSide(file);
 
     onDraft({
       secondImage: url,
-      ...(!draft.code && code ? { code, codeFormat } : {}),
+      ...(!draft.code && code ? { code, codeFormat, codeSource } : {}),
       ...(!draft.brand && provider ? { brand: provider } : {}),
     });
     setScanning(false);
@@ -581,7 +644,10 @@ function SecondSide({
           {scanning
             ? "AxoCard čte druhou stranu: hledá kód i poskytovatele…"
             : draft.code || draft.brand
-              ? [draft.code ? "Kód rozpoznán." : "", draft.brand ? `Poskytovatel: ${draft.brand}.` : ""].filter(Boolean).join(" ")
+              ? [
+                  draft.code ? (draft.codeSource === "text" ? "Číslo karty načteno z textu; vytvoří se z něj skenovatelný Code 128." : "Čárový/QR kód rozpoznán.") : "",
+                  draft.brand ? `Poskytovatel: ${draft.brand}.` : ""
+                ].filter(Boolean).join(" ")
               : "AxoCard zkusí z druhé strany doplnit to, co na první nenašel — kód i poskytovatele."}
         </div>
         <button className="primary" type="button" disabled={scanning} onClick={onNext}>
@@ -628,11 +694,13 @@ function Review({
         </div>
         <div className="field">
           <label htmlFor="code">Čárový kód / QR</label>
-          <input id="code" value={draft.code} onChange={(e) => onDraft({ code: e.target.value, codeFormat: "" })} placeholder="Doplňte ručně, pokud nebyl rozpoznán" />
+          <input id="code" value={draft.code} onChange={(e) => onDraft({ code: e.target.value, codeFormat: "", codeSource: "" })} placeholder="Doplňte ručně, pokud nebyl rozpoznán" />
         </div>
 
         <div className="truth-note">
-          AxoCard nevyplňuje falešný kód. Pokud se kód z fotografie nepodaří skutečně přečíst, zůstane pole prázdné.
+          {draft.codeSource === "text"
+            ? "Grafický čárový kód se nepodařilo dekódovat, ale číslo karty bylo přečteno z textu na kartě. AxoCard z něj vytvoří Code 128 pro skenování."
+            : "AxoCard nevyplňuje falešný kód. Pokud se kód ani číslo karty nepodaří skutečně přečíst, pole zůstane prázdné."}
         </div>
 
         <button className="primary" type="button" disabled={!canSave} onClick={onSave}>
@@ -765,6 +833,7 @@ export function App() {
     type: "Věrnostní karta",
     code: "",
     codeFormat: "",
+    codeSource: "",
   });
 
   useEffect(() => {
@@ -774,7 +843,7 @@ export function App() {
   const patchDraft = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
 
   const start = () => {
-    setDraft({ firstImage: "", secondImage: "", brand: "", type: "Věrnostní karta", code: "", codeFormat: "" });
+    setDraft({ firstImage: "", secondImage: "", brand: "", type: "Věrnostní karta", code: "", codeFormat: "", codeSource: "" });
     setScreen("first");
   };
 
