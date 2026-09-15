@@ -180,22 +180,51 @@ async function tryReadProviderFromImage(file: File): Promise<string> {
     const { data } = await worker.recognize(file);
     await worker.terminate();
 
-    const normalized = data.text
+    const rawText = data.text || "";
+    const normalized = rawText
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9.]+/g, " ");
+      .toLowerCase();
 
-    const hit = KNOWN_PROVIDERS.find((provider) => {
+    const knownHit = KNOWN_PROVIDERS.find((provider) => {
       const key = provider
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9.]+/g, " ");
+        .toLowerCase();
       return normalized.includes(key);
     });
+    if (knownHit) return knownHit;
 
-    return hit ?? "";
+    // Generic fallback for providers that are not in our known-brand list.
+    // We prefer short, logo-like uppercase words and ignore generic card labels.
+    const stopWords = new Set([
+      "CLENSKY", "CLENSKY PRUKAZ", "PRUKAZ", "CISLO", "CISLO KARTY", "KARTY",
+      "KARTA", "KLUB", "CLUB", "CARD", "MEMBER", "MEMBERSHIP", "LOYALTY",
+      "VERNOSTNI", "ZAKAZNICKA", "ZAKAZNICKY", "CUSTOMER", "ID"
+    ]);
+
+    const candidates = rawText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => [line, ...line.split(/\s+/)])
+      .map((value) => value.replace(/[^A-Za-z0-9.&-]/g, "").trim())
+      .filter((value) => value.length >= 2 && value.length <= 24)
+      .filter((value) => !/^\d+$/.test(value))
+      .filter((value) => !stopWords.has(value.toUpperCase()))
+      .map((value) => {
+        const letters = value.replace(/[^A-Za-z]/g, "");
+        const upper = letters.replace(/[^A-Z]/g, "").length;
+        const upperRatio = letters.length ? upper / letters.length : 0;
+        const score =
+          (upperRatio > 0.85 ? 5 : 0) +
+          (value.length >= 3 && value.length <= 10 ? 3 : 0) +
+          (/^[A-Z0-9.&-]+$/.test(value) ? 2 : 0);
+        return { value, score };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    return candidates[0]?.score >= 5 ? candidates[0].value : "";
   } catch {
     return "";
   }
@@ -204,40 +233,101 @@ async function tryReadProviderFromImage(file: File): Promise<string> {
 async function tryDetectBarcode(file: File): Promise<{ code: string; format: string }> {
   const BarcodeDetectorCtor = (window as unknown as {
     BarcodeDetector?: new (opts?: { formats?: string[] }) => {
-      detect: (source: ImageBitmap) => Promise<Array<{ rawValue?: string; format?: string }>>;
+      detect: (source: ImageBitmap | HTMLCanvasElement) => Promise<Array<{ rawValue?: string; format?: string }>>;
     };
   }).BarcodeDetector;
 
-  if (BarcodeDetectorCtor && "createImageBitmap" in window) {
+  const normalizeNativeFormat = (format: string) => format.toUpperCase();
+
+  const tryNative = async (source: ImageBitmap | HTMLCanvasElement) => {
+    if (!BarcodeDetectorCtor) return { code: "", format: "" };
     try {
-      const bitmap = await createImageBitmap(file);
       const detector = new BarcodeDetectorCtor({
         formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e"],
       });
-      const result = await detector.detect(bitmap);
-      bitmap.close();
+      const result = await detector.detect(source);
       const detected = result[0]?.rawValue?.trim() ?? "";
-      if (detected) return { code: detected, format: (result[0]?.format ?? "").toUpperCase() };
+      return detected
+        ? { code: detected, format: normalizeNativeFormat(result[0]?.format ?? "") }
+        : { code: "", format: "" };
     } catch {
-      // Safari/iOS often does not expose BarcodeDetector; fall through to ZXing.
+      return { code: "", format: "" };
     }
-  }
+  };
 
-  const url = URL.createObjectURL(file);
+  const reader = new BrowserMultiFormatReader();
+
+  const tryZXingCanvas = async (canvas: HTMLCanvasElement) => {
+    try {
+      const result = await reader.decodeFromCanvas(canvas);
+      return {
+        code: result.getText().trim(),
+        format: String(BarcodeFormat[result.getBarcodeFormat()] ?? ""),
+      };
+    } catch {
+      return { code: "", format: "" };
+    }
+  };
+
+  const bitmap = await createImageBitmap(file);
   try {
-    const reader = new BrowserMultiFormatReader();
-    const result = await reader.decodeFromImageUrl(url);
-    return {
-      code: result.getText().trim(),
-      format: String(BarcodeFormat[result.getBarcodeFormat()] ?? ""),
-    };
-  } catch {
+    // First try the untouched source.
+    const nativeFull = await tryNative(bitmap);
+    if (nativeFull.code) return nativeFull;
+
+    // Build several likely barcode regions. Loyalty cards often put the code in the
+    // lower half or lower third; screenshots can have lots of unrelated UI around it.
+    const regions = [
+      { x: 0, y: 0, w: 1, h: 1 },
+      { x: 0, y: 0.40, w: 1, h: 0.60 },
+      { x: 0, y: 0.55, w: 1, h: 0.45 },
+      { x: 0.05, y: 0.45, w: 0.90, h: 0.45 },
+      { x: 0.10, y: 0.50, w: 0.80, h: 0.35 },
+      { x: 0.05, y: 0.25, w: 0.90, h: 0.50 },
+    ];
+
+    for (const region of regions) {
+      const sx = Math.max(0, Math.floor(bitmap.width * region.x));
+      const sy = Math.max(0, Math.floor(bitmap.height * region.y));
+      const sw = Math.max(1, Math.floor(bitmap.width * region.w));
+      const sh = Math.max(1, Math.floor(bitmap.height * region.h));
+
+      const scales = [1, 1.5];
+      for (const scale of scales) {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(1800, Math.max(320, Math.floor(sw * scale)));
+        canvas.height = Math.min(1800, Math.max(220, Math.floor(sh * scale)));
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) continue;
+
+        ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+        const native = await tryNative(canvas);
+        if (native.code) return native;
+
+        const direct = await tryZXingCanvas(canvas);
+        if (direct.code) return direct;
+
+        // High-contrast grayscale pass helps with screenshots and dark cards.
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imageData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+          const boosted = gray < 150 ? Math.max(0, gray - 35) : Math.min(255, gray + 35);
+          d[i] = d[i + 1] = d[i + 2] = boosted;
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        const contrasted = await tryZXingCanvas(canvas);
+        if (contrasted.code) return contrasted;
+      }
+    }
+
     return { code: "", format: "" };
   } finally {
-    URL.revokeObjectURL(url);
+    bitmap.close();
   }
 }
-
 
 async function recognizeCardSide(file: File): Promise<{ code: string; codeFormat: string; provider: string }> {
   const [barcode, provider] = await Promise.all([
@@ -339,7 +429,7 @@ function FirstSide({
             ? "AxoCard čte kód a hledá název poskytovatele…"
             : draft.code || draft.brand
               ? [draft.code ? "Kód rozpoznán." : "", draft.brand ? `Poskytovatel: ${draft.brand}.` : ""].filter(Boolean).join(" ")
-              : "AxoCard se pokusí přečíst kód i název poskytovatele přímo z fotografie."}
+              : "AxoCard se pokusí přečíst kód i název poskytovatele přímo z fotografie. U screenshotů z Walletu zkouší i ořez a zvýšení kontrastu."}
         </div>
         <button className="primary" type="button" disabled={!draft.firstImage || scanning} onClick={onNext}>
           Pokračovat
