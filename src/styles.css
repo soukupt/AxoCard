@@ -384,3 +384,163 @@ button { -webkit-tap-highlight-color: transparent; }
   font-size:14px;
   letter-spacing:.04em;
 }
+
+
+/* Apple Wallet pass preview and pass color controls */
+.pass-preview-shell { margin:24px 0 20px; }
+.pass-preview-label {
+  margin-bottom:10px;
+  color:#8ea8b8;
+  font-size:13px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.pass-preview {
+  width:100%;
+  min-height:300px;
+  border-radius:26px;
+  padding:22px;
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  box-shadow:0 22px 60px rgba(0,0,0,.35);
+  border:1px solid rgba(255,255,255,.16);
+  transition:background-color .2s ease;
+}
+.pass-preview-top { display:flex; align-items:center; gap:12px; }
+.pass-brand-mark {
+  width:48px;
+  height:48px;
+  border-radius:14px;
+  display:grid;
+  place-items:center;
+  background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.20);
+  font-weight:900;
+  letter-spacing:-.04em;
+}
+.pass-brand-name { font-size:20px; font-weight:900; }
+.pass-preview-body {
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  margin-top:28px;
+}
+.pass-field-label {
+  color:rgba(255,255,255,.72);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.12em;
+}
+.pass-preview-body strong {
+  margin-top:4px;
+  font-size:32px;
+  line-height:1;
+  letter-spacing:-.035em;
+}
+.pass-type {
+  margin-top:6px;
+  color:rgba(255,255,255,.78);
+  font-size:14px;
+}
+.pass-preview-code { margin-top:auto; padding-top:22px; }
+.pass-code-placeholder {
+  min-height:96px;
+  border-radius:16px;
+  display:grid;
+  place-items:center;
+  padding:16px;
+  background:rgba(255,255,255,.92);
+  color:#52606a;
+  font-size:12px;
+  font-weight:700;
+}
+.barcode-visual.compact { margin:0; padding:8px 10px; border-radius:16px; }
+.barcode-visual.compact svg { min-height:86px; max-height:110px; }
+.barcode-visual.compact img { width:min(58%,220px); }
+
+.pass-color-section {
+  margin:18px 0 24px;
+  padding:16px;
+  border-radius:20px;
+  background:rgba(7,23,33,.72);
+  border:1px solid rgba(74,160,196,.16);
+}
+.pass-color-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+}
+.pass-color-head > div:first-child {
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.pass-color-head strong { font-size:15px; }
+.pass-color-head span { color:#728d9d; font-size:12px; }
+.current-color {
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.65);
+  box-shadow:0 0 0 1px rgba(0,0,0,.3);
+}
+.color-options {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px;
+  margin-top:14px;
+}
+.color-auto {
+  min-height:38px;
+  padding:0 14px;
+  border-radius:999px;
+  border:1px solid #28566b;
+  background:#081a24;
+  color:#a8c2cf;
+  font-weight:800;
+  cursor:pointer;
+}
+.color-auto.selected {
+  border-color:#32c7e8;
+  color:#e6fbff;
+  box-shadow:0 0 0 2px rgba(50,199,232,.10);
+}
+.color-swatch,
+.color-custom {
+  width:38px;
+  height:38px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.24);
+  box-shadow:0 0 0 1px rgba(0,0,0,.25);
+  cursor:pointer;
+}
+.color-swatch.selected {
+  border-color:#fff;
+  box-shadow:0 0 0 3px rgba(49,197,232,.30);
+}
+.color-custom {
+  position:relative;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(135deg,#17c7ec,#3261ff 52%,#ed3aa8);
+  color:white;
+  font-size:22px;
+  overflow:hidden;
+}
+.color-custom input {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  opacity:0;
+  cursor:pointer;
+}
+
+@media (max-width:560px) {
+  .pass-preview { min-height:280px; padding:18px; border-radius:22px; }
+  .pass-preview-body strong { font-size:28px; }
+}

@@ -61,7 +61,19 @@ const STORAGE_KEY = "axocard_saved_cards_v2";
 function readSavedCards(): SavedCard[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Array<Partial<SavedCard>>;
+    return parsed.map((card, index) => ({
+      id: card.id ?? `saved-${index}`,
+      brand: card.brand ?? "",
+      name: card.name ?? card.brand ?? "",
+      type: card.type ?? "Věrnostní karta",
+      code: card.code ?? "",
+      codeFormat: card.codeFormat ?? "",
+      passBackgroundColor: card.passBackgroundColor ?? "#111820",
+      passColorMode: card.passColorMode ?? "auto",
+      status: card.status ?? "ready",
+    }));
   } catch {
     return [];
   }
@@ -635,10 +647,12 @@ function FirstSide({
     onDraft({ firstImage: url });
     setScanning(true);
     const { code, codeFormat, provider, codeSource } = await recognizeCardSide(file);
+    const autoColor = brandColor(provider || draft.brand) || await extractImagePassColor(file);
     onDraft({
       firstImage: url,
       ...(code ? { code, codeFormat, codeSource } : {}),
       ...(provider ? { brand: provider } : {}),
+      ...(draft.passColorMode === "auto" ? { passBackgroundColor: autoColor } : {}),
     });
     setScanning(false);
   };
@@ -687,11 +701,13 @@ function SecondSide({
     onDraft({ secondImage: url });
     setScanning(true);
     const { code, codeFormat, provider, codeSource } = await recognizeCardSide(file);
+    const autoColor = brandColor(provider || draft.brand) || await extractImagePassColor(file);
 
     onDraft({
       secondImage: url,
       ...(!draft.code && code ? { code, codeFormat, codeSource } : {}),
       ...(!draft.brand && provider ? { brand: provider } : {}),
+      ...(draft.passColorMode === "auto" ? { passBackgroundColor: autoColor } : {}),
     });
     setScanning(false);
   };
@@ -723,6 +739,45 @@ function SecondSide({
   );
 }
 
+
+function PassPreview({
+  brand,
+  type,
+  code,
+  codeFormat,
+  backgroundColor,
+}: {
+  brand: string;
+  type: string;
+  code: string;
+  codeFormat: string;
+  backgroundColor: string;
+}) {
+  return (
+    <div className="pass-preview-shell">
+      <div className="pass-preview-label">Náhled passu</div>
+      <div className="pass-preview" style={{ backgroundColor }}>
+        <div className="pass-preview-top">
+          <div className="pass-brand-mark">{brand ? brand.slice(0, 2).toUpperCase() : "AX"}</div>
+          <div className="pass-brand-name">{brand || "Název poskytovatele"}</div>
+        </div>
+        <div className="pass-preview-body">
+          <span className="pass-field-label">KARTA</span>
+          <strong>{brand || "Věrnostní karta"}</strong>
+          <span className="pass-type">{type || "Věrnostní karta"}</span>
+        </div>
+        <div className="pass-preview-code">
+          {code ? (
+            <BarcodeVisual code={code} format={codeFormat} compact />
+          ) : (
+            <div className="pass-code-placeholder">Čárový kód / QR se zobrazí po načtení</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Review({
   draft,
   onDraft,
@@ -736,13 +791,75 @@ function Review({
 }) {
   const canSave = draft.brand.trim().length > 0;
 
+  const chooseColor = (value: string) => {
+    onDraft({ passBackgroundColor: value, passColorMode: "manual" });
+  };
+
+  const useAutomaticColor = () => {
+    const known = brandColor(draft.brand);
+    onDraft({
+      passColorMode: "auto",
+      ...(known ? { passBackgroundColor: known } : {}),
+    });
+  };
+
   return (
     <main className="flow-screen">
       <FlowHeader step="3 z 3" title="Kontrola karty" onBack={onBack} />
       <section className="flow-card">
         <div className="step-pill">3</div>
-        <h2>Je vše v pořádku?</h2>
-        <p>Zkontroluj údaje a v případě potřeby je uprav.</p>
+        <h2>Náhled a kontrola</h2>
+        <p>Nahoře vidíš náhled passu. Pod ním můžeš upravit barvu i údaje před vytvořením.</p>
+
+        <PassPreview
+          brand={draft.brand}
+          type={draft.type}
+          code={draft.code}
+          codeFormat={draft.codeFormat}
+          backgroundColor={draft.passBackgroundColor}
+        />
+
+        <div className="pass-color-section">
+          <div className="pass-color-head">
+            <div>
+              <strong>Barva passu</strong>
+              <span>{draft.passColorMode === "auto" ? "Automaticky načtená" : "Ručně zvolená"}</span>
+            </div>
+            <div className="current-color" style={{ backgroundColor: draft.passBackgroundColor }} />
+          </div>
+
+          <div className="color-options">
+            <button
+              type="button"
+              className={"color-auto " + (draft.passColorMode === "auto" ? "selected" : "")}
+              onClick={useAutomaticColor}
+            >
+              Automaticky
+            </button>
+
+            {PASS_COLOR_PRESETS.map((preset) => (
+              <button
+                type="button"
+                key={preset.value}
+                className={"color-swatch " + (draft.passBackgroundColor === preset.value ? "selected" : "")}
+                style={{ backgroundColor: preset.value }}
+                onClick={() => chooseColor(preset.value)}
+                aria-label={preset.name}
+                title={preset.name}
+              />
+            ))}
+
+            <label className="color-custom" title="Jiná barva">
+              <span>+</span>
+              <input
+                type="color"
+                value={draft.passBackgroundColor}
+                onChange={(e) => chooseColor(e.target.value.toUpperCase())}
+                aria-label="Jiná barva"
+              />
+            </label>
+          </div>
+        </div>
 
         <div className="thumbs">
           {draft.firstImage && <img src={draft.firstImage} alt="První strana" />}
@@ -751,21 +868,37 @@ function Review({
 
         <div className="field">
           <label htmlFor="brand">Značka / název</label>
-          <input id="brand" value={draft.brand} onChange={(e) => onDraft({ brand: e.target.value })} placeholder="Např. BENU" />
+          <input
+            id="brand"
+            value={draft.brand}
+            onChange={(e) => {
+              const brand = e.target.value;
+              const known = draft.passColorMode === "auto" ? brandColor(brand) : "";
+              onDraft({ brand, ...(known ? { passBackgroundColor: known } : {}) });
+            }}
+            placeholder="Např. BENU"
+          />
         </div>
+
         <div className="field">
           <label htmlFor="type">Typ</label>
           <input id="type" value={draft.type} onChange={(e) => onDraft({ type: e.target.value })} placeholder="Věrnostní karta" />
         </div>
+
         <div className="field">
           <label htmlFor="code">Čárový kód / QR</label>
-          <input id="code" value={draft.code} onChange={(e) => onDraft({ code: e.target.value, codeFormat: "", codeSource: "" })} placeholder="Doplňte ručně, pokud nebyl rozpoznán" />
+          <input
+            id="code"
+            value={draft.code}
+            onChange={(e) => onDraft({ code: e.target.value, codeFormat: "", codeSource: "" })}
+            placeholder="Doplňte ručně, pokud nebyl rozpoznán"
+          />
         </div>
 
         <div className="truth-note">
           {draft.codeSource === "text"
-            ? "Grafický čárový kód se nepodařilo dekódovat, ale číslo karty bylo přečteno z textu na kartě. AxoCard z něj vytvoří Code 128 pro skenování."
-            : "AxoCard nevyplňuje falešný kód. Pokud se kód ani číslo karty nepodaří skutečně přečíst, pole zůstane prázdné."}
+            ? "Grafický čárový kód se nepodařilo dekódovat, ale číslo karty bylo přečteno z textu. AxoCard z něj vytvoří Code 128."
+            : "AxoCard nevyplňuje falešný kód. Pokud se kód ani číslo nepodaří přečíst, pole zůstane prázdné."}
         </div>
 
         <button className="primary" type="button" disabled={!canSave} onClick={onSave}>
@@ -776,7 +909,7 @@ function Review({
   );
 }
 
-function BarcodeVisual({ code, format }: { code: string; format: string }) {
+function BarcodeVisual({ code, format, compact = false }: { code: string; format: string; compact?: boolean }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [qrUrl, setQrUrl] = useState("");
 
@@ -834,9 +967,9 @@ function BarcodeVisual({ code, format }: { code: string; format: string }) {
   if (!code) return null;
 
   return (
-    <div className="barcode-visual">
+    <div className={"barcode-visual " + (compact ? "compact" : "")}>
       {qrUrl ? <img src={qrUrl} alt="QR kód karty" /> : <svg ref={svgRef} aria-label="Čárový kód karty" />}
-      <div className="barcode-caption">Kód pro načtení u pokladny</div>
+      {!compact && <div className="barcode-caption">Kód pro načtení u pokladny</div>}
     </div>
   );
 }
@@ -876,7 +1009,14 @@ function Done({
         <div className="done-eyebrow">Karta je připravená</div>
         <h2>{card.name}</h2>
         <p>{card.type}</p>
-        {card.code && (<><BarcodeVisual code={card.code} format={card.codeFormat} /><div className="code-box raw-code">{card.code}</div></>)}
+        <PassPreview
+          brand={card.brand}
+          type={card.type}
+          code={card.code}
+          codeFormat={card.codeFormat}
+          backgroundColor={card.passBackgroundColor}
+        />
+        {card.code && <div className="code-box raw-code">{card.code}</div>}
 
         <button className="wallet-button" type="button" onClick={wallet}> Přidat do Apple Wallet</button>
         <button className="secondary full" type="button" onClick={share}>Sdílet kartu</button>
@@ -899,6 +1039,8 @@ export function App() {
     code: "",
     codeFormat: "",
     codeSource: "",
+    passBackgroundColor: "#111820",
+    passColorMode: "auto",
   });
 
   useEffect(() => {
@@ -908,7 +1050,17 @@ export function App() {
   const patchDraft = (next: Partial<Draft>) => setDraft((current) => ({ ...current, ...next }));
 
   const start = () => {
-    setDraft({ firstImage: "", secondImage: "", brand: "", type: "Věrnostní karta", code: "", codeFormat: "", codeSource: "" });
+    setDraft({
+      firstImage: "",
+      secondImage: "",
+      brand: "",
+      type: "Věrnostní karta",
+      code: "",
+      codeFormat: "",
+      codeSource: "",
+      passBackgroundColor: "#111820",
+      passColorMode: "auto",
+    });
     setScreen("first");
   };
 
@@ -922,6 +1074,8 @@ export function App() {
       type: draft.type.trim() || "Věrnostní karta",
       code: draft.code.trim(),
       codeFormat: draft.codeFormat,
+      passBackgroundColor: draft.passBackgroundColor,
+      passColorMode: draft.passColorMode,
       status: "ready",
     };
     setSavedCards((current) => [card, ...current]);
