@@ -16,6 +16,8 @@ type SavedCard = {
   type: string;
   code: string;
   codeFormat: string;
+  passBackgroundColor: string;
+  passColorMode: "auto" | "manual";
   status: CardStatus;
 };
 
@@ -27,17 +29,19 @@ type Draft = {
   code: string;
   codeFormat: string;
   codeSource: "barcode" | "text" | "";
+  passBackgroundColor: string;
+  passColorMode: "auto" | "manual";
 };
 
 const DEMO_CARDS: SavedCard[] = [
-  { id: "tesco", brand: "TESCO", name: "Tesco Clubcard", type: "Věrnostní karta", code: "", codeFormat: "", status: "wallet" },
-  { id: "kaufland", brand: "K", name: "Kaufland Card", type: "Věrnostní karta", code: "", codeFormat: "", status: "wallet" },
-  { id: "benu", brand: "BENU", name: "BENU", type: "Lékárna", code: "", codeFormat: "", status: "wallet" },
-  { id: "albert", brand: "albert", name: "Albert", type: "Věrnostní karta", code: "", codeFormat: "", status: "ready" },
-  { id: "teta", brand: "teta", name: "Teta", type: "Drogerie", code: "", codeFormat: "", status: "ready" },
-  { id: "mobelix", brand: "MÖBELIX", name: "Möbelix", type: "Věrnostní karta", code: "", codeFormat: "", status: "none" },
-  { id: "billa", brand: "BILLA", name: "BILLA Bonus Club", type: "Věrnostní karta", code: "", codeFormat: "", status: "wallet" },
-  { id: "ikea", brand: "IKEA", name: "IKEA Family", type: "Věrnostní karta", code: "", codeFormat: "", status: "ready" },
+  { id: "tesco", brand: "TESCO", name: "Tesco Clubcard", type: "Věrnostní karta", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "wallet" },
+  { id: "kaufland", brand: "K", name: "Kaufland Card", type: "Věrnostní karta", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "wallet" },
+  { id: "benu", brand: "BENU", name: "BENU", type: "Lékárna", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "wallet" },
+  { id: "albert", brand: "albert", name: "Albert", type: "Věrnostní karta", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "ready" },
+  { id: "teta", brand: "teta", name: "Teta", type: "Drogerie", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "ready" },
+  { id: "mobelix", brand: "MÖBELIX", name: "Möbelix", type: "Věrnostní karta", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "none" },
+  { id: "billa", brand: "BILLA", name: "BILLA Bonus Club", type: "Věrnostní karta", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "wallet" },
+  { id: "ikea", brand: "IKEA", name: "IKEA Family", type: "Věrnostní karta", code: "", codeFormat: "", passBackgroundColor: "#111820", passColorMode: "auto", status: "ready" },
 ];
 
 const FIGMA = {
