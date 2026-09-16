@@ -196,6 +196,34 @@ function brandColor(provider: string): string {
   return BRAND_COLORS[provider.trim().toLowerCase()] ?? "";
 }
 
+async function extractImagePassColor(file: File): Promise<string> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = 48;
+    canvas.height = 48;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "#111820";
+    ctx.drawImage(bitmap, 0, 0, 48, 48);
+    bitmap.close();
+    const data = ctx.getImageData(0, 0, 48, 48).data;
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < data.length; i += 32) {
+      const rr = data[i], gg = data[i + 1], bb = data[i + 2];
+      const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb);
+      const brightness = (rr + gg + bb) / 3;
+      if (brightness < 35 || brightness > 230 || max - min < 25) continue;
+      r += rr; g += gg; b += bb; n++;
+    }
+    if (!n) return "#111820";
+    const hex = (v: number) => Math.round(v / n).toString(16).padStart(2, "0");
+    return ("#" + hex(r) + hex(g) + hex(b)).toUpperCase();
+  } catch {
+    return "#111820";
+  }
+}
+
+
 const KNOWN_PROVIDERS = [
   "BENU", "Tesco", "Kaufland", "Albert", "Teta", "Möbelix", "BILLA", "IKEA",
   "Lidl", "dm", "Rossmann", "Globus", "Dr.Max"
