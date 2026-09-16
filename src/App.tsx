@@ -163,6 +163,39 @@ function Home({ onAdd, savedCards }: { onAdd: () => void; savedCards: SavedCard[
 }
 
 
+
+const PASS_COLOR_PRESETS = [
+  { name: "Modrá", value: "#176BFF" },
+  { name: "Tyrkysová", value: "#0AAFC9" },
+  { name: "Zelená", value: "#0E8F66" },
+  { name: "Červená", value: "#C9283E" },
+  { name: "Oranžová", value: "#E85D16" },
+  { name: "Fialová", value: "#6C4AD5" },
+  { name: "Černá", value: "#111111" },
+];
+
+const BRAND_COLORS: Record<string, string> = {
+  benu: "#009640",
+  tesco: "#00539F",
+  kaufland: "#E30613",
+  albert: "#009FE3",
+  teta: "#E83E8C",
+  mobelix: "#18B9C8",
+  möbelix: "#18B9C8",
+  billa: "#F2C400",
+  ikea: "#0058A3",
+  lidl: "#0050AA",
+  dm: "#003B7A",
+  rossmann: "#D81E05",
+  globus: "#E30613",
+  "dr.max": "#00A651",
+  uncs: "#F15A24",
+};
+
+function brandColor(provider: string): string {
+  return BRAND_COLORS[provider.trim().toLowerCase()] ?? "";
+}
+
 const KNOWN_PROVIDERS = [
   "BENU", "Tesco", "Kaufland", "Albert", "Teta", "Möbelix", "BILLA", "IKEA",
   "Lidl", "dm", "Rossmann", "Globus", "Dr.Max"
