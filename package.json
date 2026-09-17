@@ -18,7 +18,8 @@
     "@zxing/library": "^0.21.3",
     "tesseract.js": "^6.0.1",
     "jsbarcode": "^3.12.1",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "passkit-generator": "^3.5.8"
   },
   "devDependencies": {
     "@types/react": "^19.0.3",
